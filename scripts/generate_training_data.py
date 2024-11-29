@@ -29,8 +29,12 @@ def generate_graph_seq2seq_io_data(
     data = np.expand_dims(df.values, axis=-1)
     data_list = [data]
     if add_time_in_day:
+        # df.index.values - df.index.values.astype("datetime64[D]")  
+        # this output the actual time of day. e.g., 2023-11-26 15:30:45 - 2023-11-26 gives 15:30:45. 
+        # np.timedelta64(1, "D") normalize the time into floating point numbers 15:30:45. ->   0.646354 days.
         time_ind = (df.index.values - df.index.values.astype("datetime64[D]")) / np.timedelta64(1, "D")
         time_in_day = np.tile(time_ind, [1, num_nodes, 1]).transpose((2, 1, 0))
+        # 34272 respresent the totol number of timestep in dataset. 
         data_list.append(time_in_day)
     if add_day_in_week:
         day_in_week = np.zeros(shape=(num_samples, num_nodes, 7))
@@ -44,8 +48,12 @@ def generate_graph_seq2seq_io_data(
     # min_t = abs(min(x_offsets))
     min_t = int(3 * 288)
     max_t = abs(num_samples - abs(max(y_offsets)))  # Exclusive
+    # data[i] is a tuple (a,b) where a is traffic value and b is time of day between 0 - 1; 
     for t in range(min_t, max_t):
         x_t_r = data[t + x_offsets, ...]
+        # The original implementation don't have this period offset. the author of this repo add this line of code.
+        # Now the training data x contain 1 hour same time data in the past 4 day, thus dimension is 4 * 12 = 48.  
+        # the prediction data y  contain the next 1 hour data, after x, thus dimension is 12. 
         x_t_p = data[t + period_offsets, ...]
         x_t = np.vstack((x_t_r, x_t_p))
         y_t = data[t + y_offsets, ...]
@@ -57,6 +65,7 @@ def generate_graph_seq2seq_io_data(
 
 
 def generate_train_val_test(args):
+    # by default, it load 5 mins data,  each row contains the timesteps, and traffic of each node. 
     df = pd.read_hdf(args.traffic_df_filename)
     # 0 is the latest observed sample.
     x_offsets = np.sort(
@@ -66,6 +75,8 @@ def generate_train_val_test(args):
     # Predict the next one hour
     y_offsets = np.sort(np.arange(1, 13, 1))
     # 暂且只用过去三天的数据，temporal shift可以后来再加
+
+    # it's 5 mins data, so each day contain 288 timesteps, period_offset try to take last three days data.
     period_offsets = np.vstack((y_offsets - 288, y_offsets-288*2, y_offsets-288*3))
     period_offsets = np.transpose(period_offsets, (1, 0)).flatten()
     # x: (num_samples, input_length, num_nodes, input_dim)
@@ -87,7 +98,7 @@ def generate_train_val_test(args):
     num_test = round(num_samples * 0.2)
     num_train = round(num_samples * 0.7)
     num_val = num_samples - num_test - num_train
-
+    
     # train
     x_train, y_train = x[:num_train], y[:num_train]
     # val
@@ -118,12 +129,12 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--output_dir", type=str, default="../data/METR-LA/", help="Output directory."
+        "--output_dir", type=str, default="data/METR-LA/", help="Output directory."
     )
     parser.add_argument(
         "--traffic_df_filename",
         type=str,
-        default="../data/METR-LA/metr-la.h5",
+        default="data/METR-LA/metr-la.h5",
         help="Raw traffic readings.",
     )
     parser.add_argument(
